@@ -1,0 +1,31 @@
+# ═══════════════════════════════════════════════════════════════
+#  LinkedIn SDR Agent — Cron Schedule Example
+#
+#  Install:
+#    1. Edit this file with your project path
+#    2. Run: crontab crontab.example
+#
+#  Or add manually:
+#    crontab -e
+#    # Then paste the line below (adjust path as needed)
+#
+#  Logs go to: data/logs/pipeline_YYYY-MM-DD.log
+# ═══════════════════════════════════════════════════════════════
+
+# ── Daily at 8:00 AM ──────────────────────────────────────────
+# Runs the full pipeline every morning
+0 8 * * * /path/to/your/project/pipeline/run_daily.sh
+
+# ── Alternative schedules ──────────────────────────────────────
+# Every day at 6:00 AM
+# 0 6 * * * /path/to/your/project/pipeline/run_daily.sh
+
+# Weekdays only at 8:00 AM
+# 0 8 * * 1-5 /path/to/your/project/pipeline/run_daily.sh
+
+# Every 12 hours
+# 0 8,20 * * * /path/to/your/project/pipeline/run_daily.sh
+
+# ── Quick install (adjust path) ────────────────────────────────
+# PROJECT="/home/yourname/projects/leadgen-agent"
+# (crontab -l 2>/dev/null; echo "0 8 * * * $PROJECT/pipeline/run_daily.sh") | crontab -

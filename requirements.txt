@@ -1,0 +1,22 @@
+pandas>=2.0
+openpyxl>=3.1
+fpdf2>=2.7
+streamlit>=1.30
+plotly>=5.18
+requests>=2.31
+# Scrapers
+beautifulsoup4>=4.12
+# ETL / Embeddings
+numpy>=1.24
+openai>=1.10
+# Vector Store
+faiss-cpu>=1.7
+# Database
+psycopg2-binary>=2.9
+# Config
+pyyaml>=6.0
+# Optional: Pinecone
+# pinecone-client>=2.0
+# Optional: CrewAI / LangChain
+# langchain>=0.2
+# crewai>=0.10

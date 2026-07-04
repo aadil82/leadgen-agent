@@ -1,0 +1,83 @@
+# ═══════════════════════════════════════════════════════════════
+# LinkedIn SDR Agent — Project .gitignore
+# Excludes everything except our project files
+# ═══════════════════════════════════════════════════════════════
+
+# Exclude all system and application directories that are
+# in this Application Data folder but NOT part of our project
+.anaconda/
+Adobe/
+Code/
+Cognosphere/
+GitHub CLI/
+GitHub Desktop/
+HP/
+Microsoft/
+OctopusRPA/
+OctopusRPA.BrowserBridge/
+Opera Software/
+Qwen/
+Synaptics/
+Wispr Flow/
+Zoom/
+Zoom/data/*
+com.github.githubapp/
+parakeetai-desktop/Local Storage/*
+parakeetai-desktop/logs/*
+kimi-desktop/
+npm/
+ollama app.exe/
+parakeetai-desktop/
+protocraft/
+uv/
+.conda/
+.config/
+.cache/
+.local/
+.claude/
+.claude.json
+.codex/
+.continuum/
+.copilot/
+.copilot-analytics-cache/
+.idlerc/
+.kimi-code/
+.kimi-webbridge/
+.ollama/
+.ssh/
+.vscode/
+.vscode-shared/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Data (keep tracked templates but ignore generated files)
+data/input/*.csv
+data/output/*
+!data/output/.gitkeep
+data/history/*
+!data/history/.gitkeep
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Shell / Windows artifacts
+nul
+NUL
+nul.txt
+
+# Environment
+.env
+config/.env
+venv/
+.venv/

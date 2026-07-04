@@ -1,0 +1,220 @@
+# ═══════════════════════════════════════════════════════════════
+#  LinkedIn SDR Agent — Configuration Settings
+#  Edit this file before first use with your real credentials.
+# ═══════════════════════════════════════════════════════════════
+
+# ── Company Profile ────────────────────────────────────────────
+company:
+  name: "Logixal"
+  description: "a leading technology consulting firm specialising in cloud infrastructure, data engineering, AI/ML solutions, and enterprise software development"
+  website: "https://logixal.com"
+  linkedin: "https://www.linkedin.com/company/logixal"
+
+# ── Services Offered ──────────────────────────────────────────
+services_offered:
+  - "Cloud Migration (AWS, Azure, GCP)"
+  - "Data Engineering & Analytics"
+  - "AI / Machine Learning Solutions"
+  - "DevOps & Platform Engineering"
+  - "Staff Augmentation & Consulting"
+  - "E-Commerce Platform Development"
+  - "POS System Implementation"
+  - "Digital Transformation Consulting"
+
+sender:
+  name: "Aadil Shaikh"
+  title: "AI Tech Architect"
+  email: "aadil.shaikh@logixal.com"
+  phone: "+1-555-000-0000"
+  linkedin: "https://www.linkedin.com/in/aadil-shaikh-b8511a154"
+  approval_email: "aadil.shaikh@logixal.com"
+
+# ── Target Industries ──────────────────────────────────────────
+target_industries:
+  - "Information Technology"
+  - "Software"
+  - "Computer Software"
+  - "E-Commerce"
+  - "Retail Technology"
+  - "Financial Services"
+  - "Healthcare"
+  - "Manufacturing"
+  - "Consulting"
+  - "Telecommunications"
+
+# ── Target Regions ─────────────────────────────────────────────
+target_regions:
+  - "United States"
+  - "United Kingdom"
+  - "Canada"
+  - "Germany"
+  - "India"
+  - "Australia"
+  - "Netherlands"
+  - "Singapore"
+
+# ── Company Size Filters ──────────────────────────────────────
+company_size:
+  min_employees: 50
+  max_employees: 50000
+  preferred_range: "200-10000"
+
+# ── Scraping Sources ──────────────────────────────────────────
+scrapers:
+  linkedin:
+    enabled: true
+    method: "api"  # "api" or "scrape"
+    rate_limit_requests: 100
+    rate_limit_window_seconds: 3600
+    search_queries:
+      - "AI engineer hiring"
+      - "machine learning engineer"
+      - "cloud architect hiring"
+      - "data engineer"
+      - "DevOps engineer"
+      - "full stack developer"
+      - "python developer"
+      - "AWS architect"
+      - "Azure architect"
+      - "generative AI"
+      - "LLM engineer"
+      - "ecommerce platform"
+      - "POS system"
+      - "retail technology"
+      - "digital transformation"
+
+  google:
+    enabled: true
+    method: "search_api"  # "search_api" or "scrape"
+    api_key_env: "GOOGLE_API_KEY"
+    search_engine_id_env: "GOOGLE_CSE_ID"
+    rate_limit_requests: 100
+    rate_limit_window_seconds: 86400
+    queries:
+      - "site:linkedin.com/jobs AI engineer"
+      - "site:linkedin.com/jobs machine learning"
+      - "site:linkedin.com/jobs cloud architect"
+      - "site:linkedin.com/jobs data engineer"
+      - "hiring AI ML engineer company"
+      - "ecommerce platform hiring developers"
+      - "retail POS system implementation"
+      - "digital transformation hiring"
+
+  jobboards:
+    enabled: true
+    sources:
+      - name: "indeed"
+        base_url: "https://www.indeed.com"
+        rate_limit: 50
+      - name: "glassdoor"
+        base_url: "https://www.glassdoor.com"
+        rate_limit: 30
+      - name: "monster"
+        base_url: "https://www.monster.com"
+        rate_limit: 30
+    search_queries:
+      - "AI engineer"
+      - "machine learning engineer"
+      - "cloud architect"
+      - "data engineer"
+      - "DevOps engineer"
+      - "ecommerce developer"
+      - "POS system developer"
+
+# ── GenAI / LLM Configuration ─────────────────────────────────
+genai:
+  provider: "openai"  # "openai", "anthropic", "azure_openai"
+  model: "gpt-4o"
+  mini_model: "gpt-4o-mini"
+  temperature: 0.3
+  max_tokens: 2000
+  api_key_env: "OPENAI_API_KEY"
+
+  # RAG Configuration
+  rag:
+    enabled: true
+    vector_store: "faiss"  # "faiss", "pinecone", "weaviate"
+    embedding_model: "text-embedding-3-small"
+    embedding_dimensions: 1536
+    chunk_size: 500
+    chunk_overlap: 50
+
+  # Agentic AI
+  agents:
+    framework: "langchain"  # "langchain", "crewai", "autogen"
+    qualification_model: "gpt-4o"
+    scoring_model: "gpt-4o-mini"
+    max_concurrent_agents: 5
+
+# ── Scoring Weights ───────────────────────────────────────────
+scoring:
+  weights:
+    technology_match: 30
+    hiring_activity: 20
+    company_size: 10
+    industry_relevance: 10
+    decision_maker_seniority: 15
+    growth_indicators: 10
+    consulting_likelihood: 5
+  min_score: 70
+  hot_threshold: 85
+  warm_threshold: 75
+
+# ── Duplicate Detection ───────────────────────────────────────
+duplicate_detection:
+  person_cooldown_days: 90
+  company_cooldown_days: 30
+
+# ── Output Settings ───────────────────────────────────────────
+output:
+  formats:
+    - "excel"
+    - "pdf"
+    - "text"
+    - "json"
+    - "eml"
+  dashboard_json: true
+  approval_digest: true
+
+# ── Dashboard Settings ────────────────────────────────────────
+dashboard:
+  refresh_interval_seconds: 60
+  port: 8501
+  auto_refresh: true
+
+# ── CRM Integration ──────────────────────────────────────────
+crm:
+  provider: "none"  # "hubspot", "salesforce", "none"
+  hubspot:
+    api_key_env: "HUBSPOT_API_KEY"
+    portal_id_env: "HUBSPOT_PORTAL_ID"
+  salesforce:
+    client_id_env: "SF_CLIENT_ID"
+    client_secret_env: "SF_CLIENT_SECRET"
+    username_env: "SF_USERNAME"
+    password_env: "SF_PASSWORD"
+
+# ── Automation ────────────────────────────────────────────────
+automation:
+  daily_run_time: "08:00"
+  timezone: "UTC"
+  min_leads_per_run: 20
+  retry_on_failure: true
+  max_retries: 3
+
+# ── Email Notifications ─────────────────────────────────────
+email_notifications:
+  enabled: true
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+  smtp_user: ""
+  smtp_password: ""  # Use app password for Gmail
+  use_tls: true
+  # Recipients: defaults to sender.approval_email if not set
+  recipients: []
+
+# ── Logging ──────────────────────────────────────────────────
+logging:
+  level: "INFO"
+  file: "data/logs/agent.log"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
