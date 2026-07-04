@@ -1,8 +1,14 @@
 """
-LinkedIn SDR Agent — Live Dashboard
-=====================================
-Self-contained Streamlit dashboard that reads lead data from the
-engine's output files (Excel, JSON, or CSV).
+LinkedIn SDR Agent — Enhanced Live Dashboard
+=============================================
+A beautiful, multi-page Streamlit dashboard for lead generation management.
+
+Features:
+  - Executive Dashboard with KPIs and charts
+  - Daily Leads browser with detailed views
+  - Customer Profiles with full history
+  - Email Follow-up tracking and management
+  - Pipeline Runner with live status
 
 Usage:
     streamlit run app.py
@@ -13,12 +19,8 @@ import json
 import os
 import re
 import sys
-import threading
-import traceback
-from datetime import datetime
-from io import StringIO
+from datetime import datetime, timedelta
 from pathlib import Path
-from contextlib import redirect_stdout, redirect_stderr
 
 import pandas as pd
 import streamlit as st
@@ -26,710 +28,852 @@ import streamlit as st
 # ── Page Config ──────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="LinkedIn SDR Agent — Live Dashboard",
+    page_title="LeadGen Agent — Command Center",
     page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
+# ── Custom CSS ───────────────────────────────────────────────────────────────
+
+st.markdown("""
+<style>
+    /* Main header styling */
+    .main-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem 2rem;
+        border-radius: 12px;
+        color: white;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+    .main-header h1 { color: white; margin: 0; font-size: 1.8rem; }
+    .main-header p { color: rgba(255,255,255,0.85); margin: 0.3rem 0 0 0; font-size: 0.95rem; }
+
+    /* KPI cards */
+    .kpi-card {
+        background: white;
+        border-radius: 12px;
+        padding: 1.2rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        border-left: 4px solid #667eea;
+        transition: transform 0.2s;
+    }
+    .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.12); }
+    .kpi-card.hot { border-left-color: #ef4444; }
+    .kpi-card.warm { border-left-color: #f59e0b; }
+    .kpi-card.qualified { border-left-color: #22c55e; }
+    .kpi-card.rejected { border-left-color: #6b7280; }
+    .kpi-card.email { border-left-color: #3b82f6; }
+    .kpi-card.pipeline { border-left-color: #8b5cf6; }
+
+    .kpi-value { font-size: 2rem; font-weight: 700; color: #1f2937; }
+    .kpi-label { font-size: 0.85rem; color: #6b7280; margin-top: 0.2rem; }
+
+    /* Status badges */
+    .badge {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .badge-hot { background: #fef2f2; color: #dc2626; }
+    .badge-warm { background: #fffbeb; color: #d97706; }
+    .badge-qualified { background: #f0fdf4; color: #16a34a; }
+    .badge-sent { background: #eff6ff; color: #2563eb; }
+    .badge-pending { background: #fefce8; color: #ca8a04; }
+    .badge-opened { background: #f0fdf4; color: #16a34a; }
+    .badge-replied { background: #faf5ff; color: #9333ea; }
+    .badge-bounced { background: #fef2f2; color: #dc2626; }
+
+    /* Lead card */
+    .lead-card {
+        background: white;
+        border-radius: 10px;
+        padding: 1rem 1.2rem;
+        margin-bottom: 0.75rem;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        border-left: 3px solid #e5e7eb;
+        transition: all 0.2s;
+    }
+    .lead-card:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.1); border-left-color: #667eea; }
+    .lead-card .company { font-weight: 600; color: #1f2937; font-size: 1.05rem; }
+    .lead-card .role { color: #6b7280; font-size: 0.9rem; }
+    .lead-card .score { font-weight: 700; font-size: 1.1rem; }
+
+    /* Email thread */
+    .email-thread {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+        background: #fafafa;
+    }
+    .email-thread .subject { font-weight: 600; color: #1f2937; }
+    .email-thread .date { color: #9ca3af; font-size: 0.8rem; }
+    .email-thread .snippet { color: #6b7280; font-size: 0.9rem; margin-top: 0.3rem; }
+
+    /* Sidebar styling */
+    [data-testid="stSidebar"] { background: #f8fafc; }
+    [data-testid="stSidebar"] .stRadio > div > label { padding: 0.4rem 0; }
+
+    /* Tables */
+    .stDataFrame { border-radius: 8px; overflow: hidden; }
+
+    /* Section headers */
+    .section-header {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #374151;
+        margin: 1.5rem 0 0.75rem 0;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #e5e7eb;
+    }
+
+    /* Timeline */
+    .timeline-item {
+        padding: 0.75rem 0 0.75rem 1.5rem;
+        border-left: 2px solid #e5e7eb;
+        position: relative;
+        margin-left: 0.5rem;
+    }
+    .timeline-item::before {
+        content: '';
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #667eea;
+        position: absolute;
+        left: -6px;
+        top: 1rem;
+    }
+    .timeline-item .tl-date { font-size: 0.8rem; color: #9ca3af; }
+    .timeline-item .tl-action { font-size: 0.9rem; color: #374151; }
+</style>
+""", unsafe_allow_html=True)
+
 # ── Constants ────────────────────────────────────────────────────────────────
 
 OUTPUT_DIR = "data/output"
 HISTORY_FILE = "data/history/leads_history.json"
-REFRESH_INTERVAL = 60  # seconds
-
+FEEDBACK_FILE = "data/history/feedback.json"
+EMAILS_DIR = "data/output/emails"
+REFRESH_INTERVAL = 60
 
 # ── Data Loading ─────────────────────────────────────────────────────────────
 
 
-@st.cache_data(ttl=REFRESH_INTERVAL, show_spinner="Loading latest lead data...")
-def find_latest_excel() -> str | None:
-    """Find the most recent Excel report in the output directory."""
-    output_path = Path(OUTPUT_DIR)
-    if not output_path.exists():
+@st.cache_data(ttl=REFRESH_INTERVAL)
+def find_latest_file(pattern: str, directory: str = OUTPUT_DIR) -> str | None:
+    """Find the most recent file matching a pattern."""
+    path = Path(directory)
+    if not path.exists():
         return None
-    xlsx_files = sorted(output_path.glob("leads_*.xlsx"), reverse=True)
-    return str(xlsx_files[0]) if xlsx_files else None
-
-
-@st.cache_data(ttl=REFRESH_INTERVAL, show_spinner="Loading latest lead data...")
-def find_latest_summary() -> str | None:
-    """Find the most recent summary text file."""
-    output_path = Path(OUTPUT_DIR)
-    txt_files = sorted(output_path.glob("daily_summary_*.txt"), reverse=True)
-    return str(txt_files[0]) if txt_files else None
-
-
-@st.cache_data(ttl=REFRESH_INTERVAL, show_spinner="Loading latest lead data...")
-def find_latest_json() -> str | None:
-    """Find the most recent dashboard JSON export."""
-    output_path = Path(OUTPUT_DIR)
-    json_files = sorted(output_path.glob("dashboard_data_*.json"), reverse=True)
-    return str(json_files[0]) if json_files else None
+    files = sorted(path.glob(pattern), reverse=True)
+    return str(files[0]) if files else None
 
 
 @st.cache_data(ttl=REFRESH_INTERVAL)
-def load_excel_data(filepath: str) -> pd.DataFrame:
-    """Load leads from an Excel report."""
+def load_json(path: str) -> dict | None:
     try:
-        df = pd.read_excel(filepath)
-        # Normalize column names
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=REFRESH_INTERVAL)
+def load_excel(path: str) -> pd.DataFrame:
+    try:
+        df = pd.read_excel(path)
         df.columns = [str(c).strip() for c in df.columns]
         return df
-    except Exception as e:
-        print(f"  [WARN] Failed to load Excel {filepath}: {e}")
+    except Exception:
         return pd.DataFrame()
 
 
 @st.cache_data(ttl=REFRESH_INTERVAL)
-def load_json_data(filepath: str) -> dict | None:
-    """Load dashboard JSON data."""
-    try:
-        with open(filepath, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except Exception as e:
-        print(f"  [WARN] Failed to load JSON {filepath}: {e}")
-        return None
-
-
-@st.cache_data(ttl=REFRESH_INTERVAL)
-def load_summary_text(filepath: str) -> str:
-    """Load summary text file."""
-    try:
-        with open(filepath, "r", encoding="utf-8") as fh:
-            return fh.read()
-    except Exception as e:
-        print(f"  [WARN] Failed to load summary {filepath}: {e}")
-        return ""
-
-
-@st.cache_data(ttl=REFRESH_INTERVAL)
 def load_history() -> dict:
-    """Load lead history / CRM data."""
-    history_path = Path(HISTORY_FILE)
-    if history_path.exists():
+    if os.path.exists(HISTORY_FILE):
         try:
-            with open(history_path, "r") as fh:
+            with open(HISTORY_FILE, "r") as fh:
                 return json.load(fh)
-        except Exception as e:
-            print(f"  [WARN] Failed to load history: {e}")
+        except Exception:
+            pass
     return {"contacts": {}, "companies": {}}
 
 
-def detect_technologies(text: str) -> list[str]:
-    """Simple tech keyword detection from text."""
-    tech_keywords = [
-        "Python", "Java", "C#", ".NET", "Node.js", "TypeScript", "Go", "Rust",
-        "AWS", "Azure", "GCP", "Google Cloud",
-        "Kubernetes", "Docker", "Terraform", "Ansible", "DevOps", "Linux",
-        "SQL", "PostgreSQL", "MySQL", "Snowflake", "Oracle", "MongoDB",
-        "Databricks", "Spark", "ETL", "Informatica", "Talend",
-        "AI", "Machine Learning", "ML", "Generative AI", "LLM", "OpenAI",
-        "React", "Angular", "Vue.js", "Full Stack",
-        "Salesforce", "SAP", "Power BI", "Tableau",
-        "Cyber Security", "Cloud Migration", "Data Engineering", "Data Science",
-        "Spring Boot", "Django", "FastAPI", "Flask", "Microservices",
-    ]
-    text_lower = text.lower()
-    matched = []
-    for kw in tech_keywords:
-        if kw.lower() in text_lower:
-            matched.append(kw)
-    return list(set(matched))
-
-
-def format_score_class(score: float) -> str:
-    if score >= 85:
-        return "HOT"
-    if score >= 75:
-        return "WARM"
-    return "QUALIFIED"
-
-
-def parse_leads_from_df(df: pd.DataFrame) -> list[dict]:
-    """Convert a DataFrame of leads into a list of dicts for the dashboard."""
-    leads = []
-    for _, row in df.iterrows():
-        # Map various possible column names
-        company = row.get("Company Name", row.get("company", ""))
-        contact = row.get("Contact Name", row.get("contact", ""))
-        title = row.get("Job Title", row.get("title", ""))
-        score_col = row.get("Lead Score", row.get("score", row.get("lead_score", 0)))
-        try:
-            score = float(score_col) if score_col else 0
-        except (ValueError, TypeError):
-            score = 0
-        industry = row.get("Industry", row.get("industry", ""))
-        country = row.get("Country", row.get("country", ""))
-        tech_stack = row.get("Technology Stack", row.get("tech_stack", ""))
-        approval = row.get("Approval Status", row.get("approval_status", "Pending"))
-        email_status = row.get("Email Draft Status", row.get("email_status", "Drafted"))
-        reason = row.get("Qualification Reason", row.get("reason", ""))
-
-        # Detect technologies from combined text
-        tech_text = f"{title} {tech_stack}"
-        detected_techs = detect_technologies(tech_text)
-
-        leads.append({
-            "score": score,
-            "priority": format_score_class(score),
-            "company": str(company) if company else "",
-            "contact": str(contact) if contact else "",
-            "title": str(title) if title else "",
-            "industry": str(industry) if industry else "",
-            "country": str(country) if country else "",
-            "tech_stack": detected_techs,
-            "approval_status": str(approval),
-            "email_status": str(email_status),
-            "reason": str(reason) if reason else "",
-        })
-    return leads
-
-
-def compute_summary(leads: list[dict]) -> dict:
-    """Compute summary statistics from a list of lead dicts."""
-    if not leads:
-        return {
-            "total_leads": 0,
-            "qualified": 0,
-            "rejected": 0,
-            "score_ranges": {"hot": 0, "warm": 0, "qualified": 0},
-            "top_technologies": [],
-            "top_industries": [],
-        }
-
-    tech_counter: dict[str, int] = {}
-    industry_counter: dict[str, int] = {}
-    score_ranges = {"hot": 0, "warm": 0, "qualified": 0}
-
-    for l in leads:
-        sc = l["score"]
-        if sc >= 85:
-            score_ranges["hot"] += 1
-        elif sc >= 75:
-            score_ranges["warm"] += 1
-        else:
-            score_ranges["qualified"] += 1
-
-        for t in l.get("tech_stack", []):
-            tech_counter[t] = tech_counter.get(t, 0) + 1
-
-        ind = l.get("industry", "")
-        if ind:
-            industry_counter[ind] = industry_counter.get(ind, 0) + 1
-
-    return {
-        "total_leads": len(leads),
-        "qualified": len([l for l in leads if l["score"] >= 70]),
-        "rejected": len([l for l in leads if l["score"] < 70]),
-        "score_ranges": score_ranges,
-        "top_technologies": sorted(tech_counter.items(), key=lambda x: -x[1])[:10],
-        "top_industries": sorted(industry_counter.items(), key=lambda x: -x[1])[:10],
-    }
-
-
-# ── Dashboard UI ──────────────────────────────────────────────────────────────
-
-
-def render_kpi_metrics(summary: dict) -> None:
-    """Render the top KPI metric cards."""
-    cols = st.columns(5)
-    metrics = [
-        ("🎯 Total Leads", summary["total_leads"], "All leads processed"),
-        ("🔥 Hot (85+)", summary["score_ranges"]["hot"], "High-priority leads"),
-        ("⭐ Warm (75-84)", summary["score_ranges"]["warm"], "Moderate-priority"),
-        ("✅ Qualified (70-74)", summary["score_ranges"]["qualified"], "Qualified leads"),
-        ("❌ Rejected", summary["rejected"], "Below threshold"),
-    ]
-    for col, (label, value, help_text) in zip(cols, metrics):
-        with col:
-            st.metric(label=label, value=value, help=help_text)
-
-
-def render_score_chart(leads: list) -> None:
-    """Bar chart of lead scores."""
-    if not leads:
-        st.info("No qualified leads to chart.")
-        return
-    df = pd.DataFrame(leads)
-    df = df.sort_values("score", ascending=True)
-
-    st.subheader("📊 Lead Score Distribution")
-    df_chart = df.set_index("company")["score"]
-    if not df_chart.empty:
-        st.bar_chart(df_chart, height=350)
-
-
-def render_pie_charts(leads: list, summary: dict) -> None:
-    """Priority breakdown and industry charts."""
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("🎯 Priority Breakdown")
-        sr = summary["score_ranges"]
-        priority_data = pd.DataFrame(
-            {
-                "Priority": ["🔥 Hot (85+)", "⭐ Warm (75-84)", "✅ Qualified (70-74)"],
-                "Count": [sr["hot"], sr["warm"], sr["qualified"]],
-            }
-        )
-        if priority_data["Count"].sum() > 0:
-            st.plotly_chart(
-                _make_pie_chart(
-                    priority_data, names="Priority", values="Count",
-                    colors=["#ef4444", "#f59e0b", "#22c55e"],
-                ),
-                use_container_width=True,
-            )
-        else:
-            st.info("No data yet.")
-
-    with col2:
-        st.subheader("🏢 Industry Breakdown")
-        industries = summary.get("top_industries", [])
-        if industries:
-            ind_df = pd.DataFrame(industries, columns=["name", "count"])
-            st.plotly_chart(
-                _make_pie_chart(ind_df, names="name", values="count"),
-                use_container_width=True,
-            )
-        else:
-            st.info("No industry data yet.")
-
-
-def _make_pie_chart(data: pd.DataFrame, names: str, values: str, colors: list | None = None):
-    """Create a Plotly pie chart."""
-    import plotly.express as px
-
-    fig = px.pie(
-        data,
-        names=names,
-        values=values,
-        color_discrete_sequence=colors or px.colors.qualitative.Set2,
-        hole=0.4,
-    )
-    fig.update_traces(textposition="inside", textinfo="percent+label")
-    fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), height=300)
-    return fig
-
-
-def render_tech_chart(summary: dict) -> None:
-    """Horizontal bar chart of top technologies."""
-    techs = summary.get("top_technologies", [])
-    if not techs:
-        st.info("No technology data yet.")
-        return
-
-    st.subheader("💻 Top Hiring Technologies")
-    df = pd.DataFrame(techs, columns=["name", "count"]).sort_values("count", ascending=True)
-    import plotly.express as px
-
-    fig = px.bar(
-        df, x="count", y="name", orientation="h", text="count",
-        color="count", color_continuous_scale="blues",
-    )
-    fig.update_traces(textposition="outside")
-    fig.update_layout(
-        xaxis_title="Mentions", yaxis_title=None, showlegend=False,
-        height=400, margin=dict(t=0, b=0, l=0, r=0),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def render_leads_table(leads: list) -> None:
-    """Interactive data table with filters."""
-    if not leads:
-        st.info("No qualified leads to display.")
-        return
-
-    df = pd.DataFrame(leads)
-    df["tech_stack"] = df["tech_stack"].apply(
-        lambda x: ", ".join(x) if isinstance(x, list) else str(x)
-    )
-
-    # Filters
-    st.subheader("📋 Qualified Leads")
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        priority_filter = st.multiselect(
-            "Priority",
-            options=sorted(df["priority"].unique()),
-            default=[],
-        )
-    with col2:
-        status_filter = st.multiselect(
-            "Approval Status",
-            options=sorted(df["approval_status"].unique()),
-            default=[],
-        )
-    with col3:
-        country_filter = st.multiselect(
-            "Country",
-            options=sorted(df["country"].unique()) if "country" in df.columns else [],
-            default=[],
-        )
-
-    # Apply filters
-    filtered = df.copy()
-    if priority_filter:
-        filtered = filtered[filtered["priority"].isin(priority_filter)]
-    if status_filter:
-        filtered = filtered[filtered["approval_status"].isin(status_filter)]
-    if country_filter:
-        filtered = filtered[filtered["country"].isin(country_filter)]
-
-    # Search
-    search = st.text_input("🔍 Search by company or contact", "")
-    if search:
-        mask = (
-            filtered["company"].str.contains(search, case=False, na=False)
-            | filtered["contact"].str.contains(search, case=False, na=False)
-        )
-        filtered = filtered[mask]
-
-    # Display
-    display_cols = [
-        "score", "priority", "company", "contact", "title",
-        "industry", "country", "tech_stack", "approval_status", "reason",
-    ]
-    available_cols = [c for c in display_cols if c in filtered.columns]
-
-    st.dataframe(
-        filtered[available_cols],
-        use_container_width=True,
-        height=min(400, 40 * len(filtered) + 40),
-        column_config={
-            "score": st.column_config.NumberColumn("Score", help="Lead score (0-100)"),
-            "priority": st.column_config.TextColumn("Priority"),
-            "company": st.column_config.TextColumn("Company"),
-            "contact": st.column_config.TextColumn("Contact"),
-            "title": st.column_config.TextColumn("Role"),
-            "industry": st.column_config.TextColumn("Industry"),
-            "country": st.column_config.TextColumn("Country"),
-            "tech_stack": st.column_config.TextColumn("Technologies"),
-            "approval_status": st.column_config.TextColumn("Approval"),
-            "reason": st.column_config.TextColumn("Reason"),
-        },
-        hide_index=True,
-    )
-
-    # Download
-    csv = filtered.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "📥 Download Filtered CSV",
-        csv,
-        f"leads_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        "text/csv",
-    )
-
-
-def render_history(history: dict) -> None:
-    """Display lead history / CRM stats in sidebar."""
-    st.sidebar.subheader("📚 Lead History")
-    contacts = history.get("contacts", {})
-    companies = history.get("companies", {})
-    st.sidebar.metric("Total Contacts Tracked", len(contacts))
-    st.sidebar.metric("Total Companies Tracked", len(companies))
-
-    if contacts:
-        st.sidebar.divider()
-        st.sidebar.caption("Recent Contacts")
-        recent = sorted(
-            contacts.items(),
-            key=lambda x: x[1].get("last_contacted", ""),
-            reverse=True,
-        )[:5]
-        for key, data in recent:
-            st.sidebar.write(f"**{data.get('name', '?')}** @ {data.get('company', '?')}")
-            st.sidebar.caption(f"Contacted: {data.get('last_contacted', '?')[:10]}")
-
-
+@st.cache_data(ttl=REFRESH_INTERVAL)
 def load_feedback() -> dict:
-    """Load feedback data from disk."""
-    feedback_path = Path("data/history/feedback.json")
-    if feedback_path.exists():
+    if os.path.exists(FEEDBACK_FILE):
         try:
-            with open(feedback_path, "r") as fh:
+            with open(FEEDBACK_FILE, "r") as fh:
                 return json.load(fh)
-        except Exception as e:
-            print(f"  [WARN] Failed to load feedback: {e}")
+        except Exception:
+            pass
     return {"accepted": [], "rejected": [], "history": []}
 
 
-def save_feedback(feedback: dict) -> None:
-    """Save feedback data to disk."""
-    feedback_path = Path("data/history/feedback.json")
-    feedback_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(feedback_path, "w", encoding="utf-8") as fh:
-        json.dump(feedback, fh, indent=2, default=str)
+def save_feedback(data: dict) -> None:
+    Path(FEEDBACK_FILE).parent.mkdir(parents=True, exist_ok=True)
+    with open(FEEDBACK_FILE, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, default=str)
 
 
-def render_feedback_section(leads: list) -> None:
-    """Render feedback buttons for accepting/rejecting leads."""
-    st.subheader("🔄 Lead Feedback")
-    st.caption("Accept or reject leads to train the scoring model.")
+def load_leads() -> tuple[list[dict], dict | None]:
+    """Load leads from JSON or Excel, return (leads, summary)."""
+    latest_json = find_latest_file("dashboard_data_*.json")
+    if latest_json:
+        data = load_json(latest_json)
+        if data:
+            return data.get("qualified_leads", []), data.get("summary")
 
-    feedback = load_feedback()
-    accepted_companies = {e["company"] for e in feedback.get("accepted", [])}
-    rejected_companies = {e["company"] for e in feedback.get("rejected", [])}
+    latest_xlsx = find_latest_file("leads_*.xlsx")
+    if latest_xlsx:
+        df = load_excel(latest_xlsx)
+        if not df.empty:
+            leads = []
+            for _, row in df.iterrows():
+                score_col = row.get("Lead Score", row.get("score", 0))
+                try:
+                    score = float(score_col) if score_col else 0
+                except (ValueError, TypeError):
+                    score = 0
+                leads.append({
+                    "score": score,
+                    "priority": "HOT" if score >= 85 else "WARM" if score >= 75 else "QUALIFIED",
+                    "company": str(row.get("Company Name", "")),
+                    "contact": str(row.get("Contact Name", "")),
+                    "title": str(row.get("Job Title", "")),
+                    "industry": str(row.get("Industry", "")),
+                    "country": str(row.get("Country", "")),
+                    "city": str(row.get("City", "")),
+                    "tech_stack": str(row.get("Technology Stack", "")),
+                    "linkedin_profile": str(row.get("LinkedIn Profile", "")),
+                    "company_website": str(row.get("Company Website", "")),
+                    "approval_status": str(row.get("Approval Status", "Pending")),
+                    "email_status": str(row.get("Email Draft Status", "Drafted")),
+                    "reason": str(row.get("Qualification Reason", "")),
+                    "email_draft": str(row.get("Email Draft", "")),
+                })
+            return leads, None
 
-    qualified = [l for l in leads if l["score"] >= 70]
-    if not qualified:
-        st.info("No qualified leads to provide feedback on.")
+    return [], None
+
+
+def detect_techs(text: str) -> list[str]:
+    keywords = [
+        "Python", "Java", "C#", ".NET", "Node.js", "TypeScript", "Go", "Rust",
+        "AWS", "Azure", "GCP", "Kubernetes", "Docker", "Terraform", "DevOps",
+        "SQL", "PostgreSQL", "MySQL", "Snowflake", "MongoDB", "Databricks",
+        "AI", "Machine Learning", "ML", "GenAI", "LLM", "OpenAI",
+        "React", "Angular", "Vue.js", "Django", "FastAPI", "Spring Boot",
+        "Salesforce", "SAP", "Power BI", "Tableau", "E-Commerce", "POS",
+    ]
+    text_lower = text.lower()
+    return list(set(kw for kw in keywords if kw.lower() in text_lower))
+
+
+# ── Sidebar Navigation ───────────────────────────────────────────────────────
+
+def render_sidebar():
+    st.sidebar.markdown("""
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                padding: 1rem; border-radius: 10px; margin-bottom: 1rem;">
+        <h2 style="color: white; margin: 0; font-size: 1.3rem;">🎯 LeadGen Agent</h2>
+        <p style="color: rgba(255,255,255,0.8); margin: 0.2rem 0 0 0; font-size: 0.8rem;">Command Center v2.0</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    page = st.sidebar.radio(
+        "Navigate",
+        ["📊 Executive Dashboard", "📋 Daily Leads", "👤 Customer Details",
+         "📧 Email Follow-ups", "🚀 Pipeline Runner"],
+        label_visibility="collapsed",
+    )
+
+    st.sidebar.divider()
+    st.sidebar.caption(f"⏱️ Auto-refresh: {REFRESH_INTERVAL}s")
+    if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
+    # Quick stats in sidebar
+    leads, _ = load_leads()
+    if leads:
+        st.sidebar.divider()
+        st.sidebar.markdown("**📈 Quick Stats**")
+        qualified = [l for l in leads if l.get("score", 0) >= 70]
+        st.sidebar.metric("Qualified", len(qualified))
+        st.sidebar.metric("Hot Leads", len([l for l in qualified if l.get("score", 0) >= 85]))
+
+    history = load_history()
+    contacts = history.get("contacts", {})
+    st.sidebar.metric("Contacts Tracked", len(contacts))
+
+    return page
+
+
+# ── Page: Executive Dashboard ────────────────────────────────────────────────
+
+def page_dashboard():
+    leads, summary = load_leads()
+
+    # Header
+    st.markdown("""
+    <div class="main-header">
+        <h1>📊 Executive Dashboard</h1>
+        <p>Real-time lead generation overview and pipeline analytics</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not leads:
+        st.warning("⚠️ No lead data found. Run the pipeline first or upload a CSV.")
         return
 
-    # Show feedback stats
-    fcol1, fcol2, fcol3 = st.columns(3)
-    with fcol1:
-        st.metric("✅ Accepted", len(feedback.get("accepted", [])))
-    with fcol2:
-        st.metric("❌ Rejected", len(feedback.get("rejected", [])))
-    with fcol3:
-        total = len(feedback.get("accepted", [])) + len(feedback.get("rejected", []))
-        st.metric("📊 Total Feedback", total)
+    qualified = [l for l in leads if l.get("score", 0) >= 70]
+    rejected = [l for l in leads if l.get("score", 0) < 70]
+    hot = [l for l in qualified if l.get("score", 0) >= 85]
+    warm = [l for l in qualified if 75 <= l.get("score", 0) < 85]
 
-    st.markdown("---")
+    # KPI Cards
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    kpi_data = [
+        ("🎯", "Total Leads", len(leads), ""),
+        ("🔥", "Hot Leads", len(hot), "hot"),
+        ("⭐", "Warm Leads", len(warm), "warm"),
+        ("✅", "Qualified", len(len(qualified)), "qualified"),
+        ("📧", "Emails Drafted", len([l for l in qualified if l.get("email_status") == "Drafted"]), "email"),
+        ("❌", "Rejected", len(rejected), "rejected"),
+    ]
+    for col, (icon, label, value, css_class) in zip([col1, col2, col3, col4, col5, col6], kpi_data):
+        with col:
+            st.markdown(f"""
+            <div class="kpi-card {css_class}">
+                <div class="kpi-value">{icon} {value}</div>
+                <div class="kpi-label">{label}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-    # Feedback form
-    for i, lead in enumerate(qualified[:20]):  # limit to top 20
-        company = lead.get("company", "")
-        contact = lead.get("contact", "")
+    st.divider()
+
+    # Charts Row
+    col_left, col_right = st.columns([3, 2])
+    with col_left:
+        st.markdown('<div class="section-header">📊 Lead Score Distribution</div>', unsafe_allow_html=True)
+        df_chart = pd.DataFrame(qualified) if qualified else pd.DataFrame({"score": [0], "company": ["No data"]})
+        if not df_chart.empty and "score" in df_chart.columns:
+            df_sorted = df_chart.sort_values("score", ascending=True)
+            st.bar_chart(df_sorted.set_index("company")["score"], height=350)
+
+    with col_right:
+        st.markdown('<div class="section-header">💻 Top Technologies</div>', unsafe_allow_html=True)
+        tech_counter = {}
+        for l in leads:
+            techs = detect_techs(f"{l.get('title', '')} {l.get('tech_stack', '')}")
+            for t in techs:
+                tech_counter[t] = tech_counter.get(t, 0) + 1
+        if tech_counter:
+            tech_df = pd.DataFrame(
+                sorted(tech_counter.items(), key=lambda x: -x[1])[:10],
+                columns=["Technology", "Count"]
+            ).sort_values("Count", ascending=True)
+            import plotly.express as px
+            fig = px.bar(tech_df, x="Count", y="Technology", orientation="h",
+                        text="Count", color="Count", color_continuous_scale="blues")
+            fig.update_traces(textposition="outside")
+            fig.update_layout(height=350, showlegend=False, margin=dict(t=0, b=0, l=0, r=0))
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Pie Charts
+    col_pie1, col_pie2, col_pie3 = st.columns(3)
+    with col_pie1:
+        st.markdown('<div class="section-header">🎯 Priority Mix</div>', unsafe_allow_html=True)
+        import plotly.express as px
+        priority_data = pd.DataFrame({
+            "Priority": ["🔥 Hot", "⭐ Warm", "✅ Qualified"],
+            "Count": [len(hot), len(warm), len(qualified) - len(hot) - len(warm)],
+        })
+        fig = px.pie(priority_data, names="Priority", values="Count",
+                    color_discrete_sequence=["#ef4444", "#f59e0b", "#22c55e"], hole=0.4)
+        fig.update_traces(textposition="inside", textinfo="percent+label")
+        fig.update_layout(showlegend=False, height=280, margin=dict(t=0, b=0, l=0, r=0))
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col_pie2:
+        st.markdown('<div class="section-header">🏢 Industry Split</div>', unsafe_allow_html=True)
+        ind_counter = {}
+        for l in leads:
+            ind = l.get("industry", "Unknown")
+            if ind:
+                ind_counter[ind] = ind_counter.get(ind, 0) + 1
+        if ind_counter:
+            ind_df = pd.DataFrame(sorted(ind_counter.items(), key=lambda x: -x[1])[:8], columns=["Industry", "Count"])
+            fig = px.pie(ind_df, names="Industry", values="Count",
+                        color_discrete_sequence=px.colors.qualitative.Set2, hole=0.4)
+            fig.update_traces(textposition="inside", textinfo="percent+label")
+            fig.update_layout(showlegend=False, height=280, margin=dict(t=0, b=0, l=0, r=0))
+            st.plotly_chart(fig, use_container_width=True)
+
+    with col_pie3:
+        st.markdown('<div class="section-header">🌍 Geography</div>', unsafe_allow_html=True)
+        country_counter = {}
+        for l in leads:
+            c = l.get("country", "Unknown")
+            if c:
+                country_counter[c] = country_counter.get(c, 0) + 1
+        if country_counter:
+            geo_df = pd.DataFrame(sorted(country_counter.items(), key=lambda x: -x[1])[:8], columns=["Country", "Count"])
+            fig = px.pie(geo_df, names="Country", values="Count",
+                        color_discrete_sequence=px.colors.qualitative.Pastel, hole=0.4)
+            fig.update_traces(textposition="inside", textinfo="percent+label")
+            fig.update_layout(showlegend=False, height=280, margin=dict(t=0, b=0, l=0, r=0))
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Recent Hot Leads
+    st.divider()
+    st.markdown('<div class="section-header">🔥 Top Hot Leads</div>', unsafe_allow_html=True)
+    for lead in hot[:5]:
         score = lead.get("score", 0)
-
-        already_accepted = company in accepted_companies
-        already_rejected = company in rejected_companies
-        status = "✅ Accepted" if already_accepted else ("❌ Rejected" if already_rejected else "⏳ Pending")
-
-        col_a, col_b, col_c, col_d = st.columns([4, 1, 1, 1])
-        with col_a:
-            st.write(f"**{company}** — {contact} (Score: {score}) [{status}]")
-        with col_b:
-            if not already_accepted and not already_rejected:
-                if st.button("✅ Accept", key=f"accept_{i}_{company}"):
-                    entry = {
-                        "timestamp": datetime.now().isoformat(),
-                        "company": company,
-                        "contact": contact,
-                        "title": lead.get("title", ""),
-                        "score": score,
-                    }
-                    feedback["accepted"].append(entry)
-                    feedback["history"].append({**entry, "accepted": True})
-                    accepted_companies.add(company)
-                    save_feedback(feedback)
-                    st.rerun()
-            else:
-                st.write("")
-        with col_c:
-            if not already_accepted and not already_rejected:
-                if st.button("❌ Reject", key=f"reject_{i}_{company}"):
-                    entry = {
-                        "timestamp": datetime.now().isoformat(),
-                        "company": company,
-                        "contact": contact,
-                        "title": lead.get("title", ""),
-                        "score": score,
-                    }
-                    feedback["rejected"].append(entry)
-                    feedback["history"].append({**entry, "accepted": False})
-                    rejected_companies.add(company)
-                    save_feedback(feedback)
-                    st.rerun()
-            else:
-                st.write("")
-
-    if len(qualified) > 20:
-        st.caption(f"... and {len(qualified) - 20} more leads")
+        st.markdown(f"""
+        <div class="lead-card" style="border-left-color: #ef4444;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span class="company">{lead.get('company', '?')}</span>
+                    <span class="role"> — {lead.get('title', '?')}</span>
+                </div>
+                <span class="score" style="color: #ef4444;">{score:.0f}</span>
+            </div>
+            <div style="font-size: 0.85rem; color: #6b7280; margin-top: 0.3rem;">
+                {lead.get('industry', '')} · {lead.get('country', '')} · {lead.get('tech_stack', '')[:80]}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 
-def render_pipeline_runner() -> None:
-    """Render the pipeline runner controls."""
-    st.subheader("🚀 Run Pipeline")
-    st.caption("Run the daily lead generation pipeline from the dashboard.")
+# ── Page: Daily Leads ────────────────────────────────────────────────────────
 
+def page_daily_leads():
+    leads, _ = load_leads()
+
+    st.markdown("""
+    <div class="main-header">
+        <h1>📋 Daily Leads</h1>
+        <p>Browse and manage all qualified leads with filters and search</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not leads:
+        st.warning("No leads found.")
+        return
+
+    # Filters
+    fcol1, fcol2, fcol3, fcol4 = st.columns(4)
+    with fcol1:
+        priority_filter = st.multiselect("Priority", ["HOT", "WARM", "QUALIFIED"], default=[])
+    with fcol2:
+        industry_options = sorted(set(l.get("industry", "") for l in leads if l.get("industry")))
+        industry_filter = st.multiselect("Industry", industry_options, default=[])
+    with fcol3:
+        country_options = sorted(set(l.get("country", "") for l in leads if l.get("country")))
+        country_filter = st.multiselect("Country", country_options, default=[])
+    with fcol4:
+        search = st.text_input("🔍 Search company or contact", "")
+
+    # Apply filters
+    filtered = leads.copy()
+    if priority_filter:
+        filtered = [l for l in filtered if l.get("priority") in priority_filter]
+    if industry_filter:
+        filtered = [l for l in filtered if l.get("industry") in industry_filter]
+    if country_filter:
+        filtered = [l for l in filtered if l.get("country") in country_filter]
+    if search:
+        search_lower = search.lower()
+        filtered = [l for l in filtered if search_lower in l.get("company", "").lower()
+                    or search_lower in l.get("contact", "").lower()
+                    or search_lower in l.get("title", "").lower()]
+
+    st.caption(f"Showing {len(filtered)} of {len(leads)} leads")
+
+    # Lead cards
+    for i, lead in enumerate(filtered):
+        score = lead.get("score", 0)
+        priority = lead.get("priority", "QUALIFIED")
+        border_color = "#ef4444" if priority == "HOT" else "#f59e0b" if priority == "WARM" else "#22c55e"
+        badge_class = "badge-hot" if priority == "HOT" else "badge-warm" if priority == "WARM" else "badge-qualified"
+
+        with st.expander(f"{'🔥' if priority == 'HOT' else '⭐' if priority == 'WARM' else '✅'} {lead.get('company', '?')} — {lead.get('contact', '?')} ({score:.0f})", expanded=False):
+            c1, c2, c3 = st.columns([2, 2, 1])
+            with c1:
+                st.markdown(f"**Role:** {lead.get('title', 'N/A')}")
+                st.markdown(f"**Industry:** {lead.get('industry', 'N/A')}")
+                st.markdown(f"**Country:** {lead.get('country', 'N/A')}")
+                st.markdown(f"**Tech:** {lead.get('tech_stack', 'N/A')[:100]}")
+            with c2:
+                st.markdown(f"**LinkedIn:** {lead.get('linkedin_profile', 'N/A')[:60]}")
+                st.markdown(f"**Website:** {lead.get('company_website', 'N/A')[:60]}")
+                st.markdown(f"**Reason:** {lead.get('reason', 'N/A')[:120]}")
+            with c3:
+                st.markdown(f'<span class="badge {badge_class}">{priority}</span>', unsafe_allow_html=True)
+                st.markdown(f"**Score:** {score:.0f}/100")
+                st.markdown(f"**Approval:** {lead.get('approval_status', 'Pending')}")
+
+            # Email preview
+            email_draft = lead.get("email_draft", "")
+            if email_draft:
+                st.divider()
+                st.markdown("**📧 Email Draft:**")
+                st.code(email_draft[:800] + ("..." if len(email_draft) > 800 else ""), language="text")
+
+
+# ── Page: Customer Details ───────────────────────────────────────────────────
+
+def page_customer_details():
+    leads, _ = load_leads()
+    history = load_history()
+    feedback = load_feedback()
+
+    st.markdown("""
+    <div class="main-header">
+        <h1>👤 Customer Details</h1>
+        <p>Deep dive into individual customer profiles and interaction history</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not leads:
+        st.warning("No leads found.")
+        return
+
+    # Customer selector
+    companies = sorted(set(l.get("company", "") for l in leads if l.get("company")))
+    selected_company = st.selectbox("Select a company", ["-- All Companies --"] + companies)
+
+    if selected_company == "-- All Companies --":
+        # Show company overview table
+        company_data = []
+        for company in companies:
+            company_leads = [l for l in leads if l.get("company") == company]
+            best_lead = max(company_leads, key=lambda x: x.get("score", 0))
+            company_data.append({
+                "Company": company,
+                "Leads": len(company_leads),
+                "Best Score": best_lead.get("score", 0),
+                "Industry": best_lead.get("industry", ""),
+                "Country": best_lead.get("country", ""),
+                "Status": best_lead.get("approval_status", "Pending"),
+            })
+        df = pd.DataFrame(company_data).sort_values("Best Score", ascending=False)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        return
+
+    # Show selected company details
+    company_leads = [l for l in leads if l.get("company") == selected_company]
+
+    st.markdown(f'<div class="section-header">🏢 {selected_company}</div>', unsafe_allow_html=True)
+
+    # Company info card
+    best_lead = max(company_leads, key=lambda x: x.get("score", 0))
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Leads Found", len(company_leads))
+    with c2:
+        st.metric("Best Score", f"{best_lead.get('score', 0):.0f}")
+    with c3:
+        st.metric("Industry", best_lead.get("industry", "N/A"))
+    with c4:
+        st.metric("Country", best_lead.get("country", "N/A"))
+
+    # Lead profiles
+    st.markdown('<div class="section-header">👥 Contacts at this Company</div>', unsafe_allow_html=True)
+    for lead in company_leads:
+        score = lead.get("score", 0)
+        st.markdown(f"""
+        <div class="lead-card">
+            <div style="display: flex; justify-content: space-between;">
+                <div>
+                    <span class="company">{lead.get('contact', 'Unknown')}</span>
+                    <span class="role"> — {lead.get('title', 'N/A')}</span>
+                </div>
+                <span class="score">{score:.0f}</span>
+            </div>
+            <div style="font-size: 0.85rem; color: #6b7280; margin-top: 0.3rem;">
+                Tech: {lead.get('tech_stack', 'N/A')[:80]} · Approval: {lead.get('approval_status', 'Pending')}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Interaction timeline
+    st.markdown('<div class="section-header">📅 Interaction Timeline</div>', unsafe_allow_html=True)
+    contacts = history.get("contacts", {})
+    company_timeline = []
+    for key, data in contacts.items():
+        if selected_company.lower() in key.lower():
+            company_timeline.append(data)
+
+    if company_timeline:
+        for entry in sorted(company_timeline, key=lambda x: x.get("last_contacted", ""), reverse=True):
+            st.markdown(f"""
+            <div class="timeline-item">
+                <div class="tl-date">{entry.get('last_contacted', 'Unknown')[:16]}</div>
+                <div class="tl-action">📧 Contacted: {entry.get('name', 'Unknown')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("No interaction history found for this company.")
+
+    # Email drafts
+    st.markdown('<div class="section-header">📧 Email Drafts</div>', unsafe_allow_html=True)
+    for lead in company_leads:
+        email = lead.get("email_draft", "")
+        if email:
+            st.code(email[:1000], language="text")
+
+
+# ── Page: Email Follow-ups ───────────────────────────────────────────────────
+
+def page_email_followups():
+    leads, _ = load_leads()
+    feedback = load_feedback()
+
+    st.markdown("""
+    <div class="main-header">
+        <h1>📧 Email Follow-ups</h1>
+        <p>Track email status, manage follow-ups, and monitor engagement</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not leads:
+        st.warning("No leads found.")
+        return
+
+    qualified = [l for l in leads if l.get("score", 0) >= 70]
+
+    # Email status summary
+    status_counts = {}
+    for l in qualified:
+        status = l.get("email_status", "Drafted")
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    ecol1, ecol2, ecol3, ecol4 = st.columns(4)
+    with ecol1:
+        st.markdown(f"""<div class="kpi-card email">
+            <div class="kpi-value">📧 {status_counts.get('Drafted', 0)}</div>
+            <div class="kpi-label">Drafted</div>
+        </div>""", unsafe_allow_html=True)
+    with ecol2:
+        st.markdown(f"""<div class="kpi-card">
+            <div class="kpi-value">📤 {status_counts.get('Sent', 0)}</div>
+            <div class="kpi-label">Sent</div>
+        </div>""", unsafe_allow_html=True)
+    with ecol3:
+        st.markdown(f"""<div class="kpi-card qualified">
+            <div class="kpi-value">👀 {status_counts.get('Opened', 0)}</div>
+            <div class="kpi-label">Opened</div>
+        </div>""", unsafe_allow_html=True)
+    with ecol4:
+        st.markdown(f"""<div class="kpi-card warm">
+            <div class="kpi-value">💬 {status_counts.get('Replied', 0)}</div>
+            <div class="kpi-label">Replied</div>
+        </div>""", unsafe_allow_html=True)
+
+    st.divider()
+
+    # Follow-up pipeline view
+    st.markdown('<div class="section-header">📬 Follow-up Pipeline</div>', unsafe_allow_html=True)
+
+    # Tabs for different statuses
+    tab_draft, tab_sent, tab_opened, tab_replied = st.tabs(["📝 Drafts", "📤 Sent", "👀 Opened", "💬 Replied"])
+
+    with tab_draft:
+        drafted = [l for l in qualified if l.get("email_status") == "Drafted"]
+        if drafted:
+            for lead in drafted[:10]:
+                st.markdown(f"""
+                <div class="lead-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span class="company">{lead.get('company', '?')}</span>
+                            <span class="role"> — {lead.get('contact', '?')}</span>
+                        </div>
+                        <span class="badge badge-pending">Draft Ready</span>
+                    </div>
+                    <div style="font-size: 0.85rem; color: #6b7280; margin-top: 0.3rem;">
+                        {lead.get('title', '')} · Score: {lead.get('score', 0):.0f}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No drafted emails pending.")
+
+    with tab_sent:
+        sent = [l for l in qualified if l.get("email_status") == "Sent"]
+        if sent:
+            for lead in sent[:10]:
+                st.markdown(f"""
+                <div class="lead-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span class="company">{lead.get('company', '?')}</span>
+                            <span class="role"> — {lead.get('contact', '?')}</span>
+                        </div>
+                        <span class="badge badge-sent">Sent</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No emails sent yet.")
+
+    with tab_opened:
+        st.info("No open tracking data yet. Integrate with an email service for open tracking.")
+
+    with tab_replied:
+        st.info("No reply tracking data yet. Integrate with an email service for reply tracking.")
+
+    # Feedback history
+    st.divider()
+    st.markdown('<div class="section-header">📊 Feedback History</div>', unsafe_allow_html=True)
+    history_entries = feedback.get("history", [])
+    if history_entries:
+        for entry in reversed(history_entries[-20:]):
+            action = "✅ Accepted" if entry.get("accepted") else "❌ Rejected"
+            st.markdown(f"""
+            <div class="email-thread">
+                <div style="display: flex; justify-content: space-between;">
+                    <span class="subject">{entry.get('company', '?')} — {entry.get('contact', '?')}</span>
+                    <span>{action}</span>
+                </div>
+                <div class="date">{entry.get('timestamp', '')[:16]}</div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("No feedback recorded yet. Use the dashboard to accept/reject leads.")
+
+    # Approval digest
+    st.divider()
+    st.markdown('<div class="section-header">📬 Approval Digest</div>', unsafe_allow_html=True)
+    today = datetime.now().strftime("%Y-%m-%d")
+    digest_path = f"data/output/approval_digest_{today}.eml"
+    if os.path.exists(digest_path):
+        with open(digest_path, "r", encoding="utf-8", errors="ignore") as fh:
+            content = fh.read()
+        st.code(content[:3000], language="text")
+        with open(digest_path, "rb") as fh:
+            st.download_button("📥 Download Approval Digest (.eml)", fh, file_name=os.path.basename(digest_path))
+    else:
+        st.info("No approval digest for today. Run the pipeline to generate one.")
+
+
+# ── Page: Pipeline Runner ────────────────────────────────────────────────────
+
+def page_pipeline():
+    st.markdown("""
+    <div class="main-header">
+        <h1>🚀 Pipeline Runner</h1>
+        <p>Execute the full lead generation pipeline with custom options</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Pipeline options
     pcol1, pcol2, pcol3 = st.columns(3)
     with pcol1:
-        skip_scraping = st.checkbox("Skip scraping", value=False)
+        skip_scraping = st.checkbox("Skip scraping", value=False, help="Use existing data in data/raw/")
     with pcol2:
-        min_score = st.slider("Min score", 50, 100, 70, 5, key="pipeline_min_score")
+        min_score = st.slider("Min score threshold", 50, 100, 70, 5)
     with pcol3:
-        use_llm = st.checkbox("Use LLM qualification", value=True)
+        use_llm = st.checkbox("Use LLM qualification", value=True, help="Requires OPENAI_API_KEY")
 
-    if st.button("▶️ Run Daily Pipeline", type="primary", use_container_width=True):
-        # Capture output in a text buffer so we can display it after completion
+    input_csv = st.text_input("Input CSV path (optional)", placeholder="data/input/leads.csv")
+
+    st.divider()
+
+    if st.button("▶️ Run Pipeline", type="primary", use_container_width=True):
+        import threading
+        from io import StringIO
+        from contextlib import redirect_stdout, redirect_stderr
+
         output_buffer = StringIO()
         error_buffer = StringIO()
         pipeline_error = [None]
 
-        def _run_pipeline():
+        def _run():
             try:
                 from pipeline.daily_run import run_pipeline
                 with redirect_stdout(output_buffer), redirect_stderr(error_buffer):
                     run_pipeline(
                         skip_scraping=skip_scraping,
+                        input_path=input_csv if input_csv else None,
                         min_score=float(min_score),
                         use_llm=use_llm,
                     )
             except Exception as e:
                 pipeline_error[0] = e
+                import traceback
                 traceback.print_exc(file=error_buffer)
 
-        with st.spinner("Running pipeline... (this may take a few minutes)"):
-            try:
-                thread = threading.Thread(target=_run_pipeline, daemon=True)
-                thread.start()
-                thread.join(timeout=600)
+        with st.spinner("🔄 Running pipeline... This may take several minutes."):
+            thread = threading.Thread(target=_run, daemon=True)
+            thread.start()
+            thread.join(timeout=600)
 
-                stdout_text = output_buffer.getvalue()
-                stderr_text = error_buffer.getvalue()
+            stdout_text = output_buffer.getvalue()
+            stderr_text = error_buffer.getvalue()
 
-                if pipeline_error[0] is None and thread.is_alive():
-                    st.warning("Pipeline is still running (timed out after 10 min). Check back later.")
-                elif pipeline_error[0] is not None:
-                    st.error(f"Pipeline failed: {pipeline_error[0]}")
-                    if stderr_text:
-                        st.code(stderr_text[-2000:], language="text")
-                else:
-                    st.success("Pipeline completed successfully!")
-                    if stdout_text:
-                        st.code(stdout_text[-2000:], language="text")
-                    st.cache_data.clear()
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Error running pipeline: {e}")
-                traceback.print_exc(file=error_buffer)
+            if pipeline_error[0] is not None:
+                st.error(f"❌ Pipeline failed: {pipeline_error[0]}")
+                if stderr_text:
+                    st.code(stderr_text[-3000:], language="text")
+            elif thread.is_alive():
+                st.warning("⏳ Pipeline still running (timed out after 10 min). Check back later.")
+            else:
+                st.success("✅ Pipeline completed successfully!")
+                st.cache_data.clear()
 
+                # Show summary
+                if stdout_text:
+                    with st.expander("📋 Pipeline Output", expanded=True):
+                        st.code(stdout_text[-3000:], language="text")
 
-def render_sidebar(data_available: bool, history: dict, latest_excel: str | None) -> None:
-    """Render the sidebar with controls and history."""
-    st.sidebar.title("🎯 LinkedIn SDR Agent")
-    st.sidebar.caption("Live Lead Generation Dashboard")
+                st.rerun()
 
-    st.sidebar.divider()
-    st.sidebar.write(f"⏱️ Auto-refresh every {REFRESH_INTERVAL}s")
-    if st.sidebar.button("🔄 Refresh Now"):
-        st.cache_data.clear()
-        st.rerun()
-
-    if data_available and latest_excel:
-        st.sidebar.divider()
-        st.sidebar.caption(f"📄 **Latest data:** `{Path(latest_excel).name}`")
-
-    st.sidebar.divider()
-    st.sidebar.write("**Output files:** `data/output/`")
-    st.sidebar.caption("📊 Excel reports • 📧 Approval digests (.eml)")
-    st.sidebar.caption("📄 PDF reports • 📝 Text summaries")
-
-    st.sidebar.divider()
-    render_history(history)
+    # Recent pipeline runs
+    st.divider()
+    st.markdown('<div class="section-header">📊 Recent Pipeline Runs</div>', unsafe_allow_html=True)
+    summary_files = sorted(Path(OUTPUT_DIR).glob("pipeline_summary_*.json"), reverse=True)[:5]
+    for sf in summary_files:
+        data = load_json(str(sf))
+        if data:
+            st.markdown(f"""
+            <div class="email-thread">
+                <div style="display: flex; justify-content: space-between;">
+                    <span class="subject">{data.get('date', '?')[:10]}</span>
+                    <span>{data.get('qualified', 0)} qualified / {data.get('total_leads', 0)} total</span>
+                </div>
+                <div class="snippet">Duration: {data.get('duration_seconds', 0):.1f}s · LLM: {'Yes' if data.get('use_llm') else 'No'}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
 
-# ── Main App ──────────────────────────────────────────────────────────────────
-
+# ── Main App ─────────────────────────────────────────────────────────────────
 
 def main():
-    # Load data
-    latest_excel = find_latest_excel()
-    latest_json = find_latest_json()
-    latest_summary = find_latest_summary()
-    history = load_history()
+    page = render_sidebar()
 
-    # Try to load data from JSON first (richest), then Excel, then summary
-    leads = []
-    summary = None
-
-    if latest_json:
-        json_data = load_json_data(latest_json)
-        if json_data:
-            leads = json_data.get("qualified_leads", [])
-            summary = json_data.get("summary", compute_summary(leads) if leads else None)
-
-    if not leads and latest_excel:
-        df = load_excel_data(latest_excel)
-        if not df.empty:
-            leads = parse_leads_from_df(df)
-            summary = compute_summary(leads)
-
-    # Sidebar
-    render_sidebar(bool(leads), history, latest_excel)
-
-    # Main content
-    if not leads:
-        st.warning(
-            "⚠️ No lead data found. Please run the lead engine first:\n\n"
-            "```bash\n"
-            "python -m src.lead_engine --input data/input/leads_YYYY-MM-DD.csv\n"
-            "```\n\n"
-            "Or place an Excel report in `data/output/` with the format `leads_YYYY-MM-DD.xlsx`.\n\n"
-            "**Sample data is available at:** `templates/leads_input_template.csv`"
-        )
-
-        # Show summary file if available
-        if latest_summary:
-            with st.expander("📝 Latest Daily Summary"):
-                text = load_summary_text(latest_summary)
-                st.text(text[:5000])
-
-        return
-
-    if not summary:
-        summary = compute_summary(leads)
-
-    # Title
-    st.title("🎯 LinkedIn SDR Agent — Live Dashboard")
-    qualified_count = len([l for l in leads if l["score"] >= 70])
-    st.markdown(
-        f"**{summary.get('date', 'Today')}** — {qualified_count} qualified leads out of "
-        f"{len(leads)} total | Auto-refresh every {REFRESH_INTERVAL}s"
-    )
-    st.divider()
-
-    # KPI cards
-    render_kpi_metrics(summary)
-
-    # Charts row
-    st.divider()
-    col1, col2 = st.columns([3, 2])
-    with col1:
-        qualified = [l for l in leads if l["score"] >= 70]
-        render_score_chart(qualified)
-    with col2:
-        render_tech_chart(summary)
-
-    # Pie charts
-    st.divider()
-    render_pie_charts(qualified, summary)
-
-    # Lead table
-    st.divider()
-    render_leads_table(leads)
-
-    # Rejected leads (those below 70)
-    rejected = [l for l in leads if l["score"] < 70]
-    if rejected:
-        with st.expander(f"❌ Leads Below Threshold ({len(rejected)})"):
-            rej_df = pd.DataFrame(rejected)
-            st.dataframe(
-                rej_df[["score", "company", "contact", "title", "reason"]],
-                use_container_width=True,
-                hide_index=True,
-            )
-
-    # Feedback section
-    st.divider()
-    render_feedback_section(leads)
-
-    # Pipeline runner
-    st.divider()
-    render_pipeline_runner()
+    if page == "📊 Executive Dashboard":
+        page_dashboard()
+    elif page == "📋 Daily Leads":
+        page_daily_leads()
+    elif page == "👤 Customer Details":
+        page_customer_details()
+    elif page == "📧 Email Follow-ups":
+        page_email_followups()
+    elif page == "🚀 Pipeline Runner":
+        page_pipeline()
 
     # Footer
     st.divider()
-    st.caption(
-        "LinkedIn SDR Agent v2.0 — Always comply with LinkedIn ToS, GDPR, and CAN-SPAM. "
-        "No emails sent without explicit human approval."
-    )
+    st.caption("🎯 LinkedIn SDR Agent v2.0 — Built with Streamlit · Plotly · GPT-4o · FAISS")
 
 
 if __name__ == "__main__":
