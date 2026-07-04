@@ -343,7 +343,7 @@ def page_dashboard():
         ("🎯", "Total Leads", len(leads), ""),
         ("🔥", "Hot Leads", len(hot), "hot"),
         ("⭐", "Warm Leads", len(warm), "warm"),
-        ("✅", "Qualified", len(len(qualified)), "qualified"),
+        ("✅", "Qualified", len(qualified), "qualified"),
         ("📧", "Emails Drafted", len([l for l in qualified if l.get("email_status") == "Drafted"]), "email"),
         ("❌", "Rejected", len(rejected), "rejected"),
     ]
